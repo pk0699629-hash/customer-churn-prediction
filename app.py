@@ -1,781 +1,1246 @@
 
 import os
+import warnings
+
 import joblib
-import streamlit as st
-import pandas as pd
 import numpy as np
+import pandas as pd
+import streamlit as st
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 from sklearn.model_selection import train_test_split
-from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
-    confusion_matrix,
     classification_report,
-    roc_curve
+    confusion_matrix,
+    roc_auc_score,
 )
-from sklearn.inspection import permutation_importance
 
-# ==================================================
+warnings.filterwarnings("ignore")
+
+
+# =========================================================
 # 1. PAGE CONFIGURATION
-# ==================================================
+# =========================================================
 
 st.set_page_config(
-    page_title="Customer Churn AI",
+    page_title="Customer Churn Prediction",
     page_icon="📊",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
-# ==================================================
-# 2. PROFESSIONAL UI
-# ==================================================
 
-st.markdown("""
-<style>
-.stApp {
-    background-color: #f5f7fb;
-}
-.block-container {
-    padding-top: 2rem;
-    padding-bottom: 2rem;
-}
-h1, h2, h3 {
-    color: #172554;
-}
-[data-testid="stMetric"] {
-    background-color: white;
-    border: 1px solid #e2e8f0;
-    padding: 18px;
-    border-radius: 14px;
-}
-[data-testid="stSidebar"] {
-    background-color: #eaf0fb;
-}
-.stButton > button,
-.stFormSubmitButton > button {
-    border-radius: 8px;
-    font-weight: 600;
-}
-</style>
-""", unsafe_allow_html=True)
+# =========================================================
+# 2. PROJECT FILE PATHS
+# =========================================================
 
-# ==================================================
-# 3. FILE PATHS AND LOADERS
-# ==================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-MODEL_PATH = "churn_model.pkl"
+MODEL_PATH = os.path.join(BASE_DIR, "churn_model.pkl")
 
-DATA_PATH = (
-    r"C:\Users\Dell\Downloads\archive"
-    r"\WA_Fn-UseC_-Telco-Customer-Churn.csv"
+DATA_PATH = os.path.join(
+    BASE_DIR,
+    "WA_Fn-UseC_-Telco-Customer-Churn.csv",
 )
 
+
+# =========================================================
+# 3. CUSTOM CSS
+# =========================================================
+
+st.markdown(
+    """
+    <style>
+    .main {
+        background-color: #f7f9fc;
+    }
+
+    .block-container {
+        padding-top: 1.5rem;
+        padding-bottom: 2rem;
+    }
+
+    .main-title {
+        font-size: 2.3rem;
+        font-weight: 700;
+        color: #183153;
+        margin-bottom: 0.2rem;
+    }
+
+    .sub-title {
+        color: #64748b;
+        font-size: 1rem;
+        margin-bottom: 1.5rem;
+    }
+
+    div[data-testid="stMetric"] {
+        background-color: white;
+        border: 1px solid #e2e8f0;
+        padding: 18px;
+        border-radius: 12px;
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: #475569;
+    }
+
+    .info-box {
+        padding: 16px;
+        border-radius: 10px;
+        background-color: #eef4ff;
+        border-left: 5px solid #2563eb;
+        margin-bottom: 15px;
+    }
+
+    .success-box {
+        padding: 16px;
+        border-radius: 10px;
+        background-color: #ecfdf5;
+        border-left: 5px solid #10b981;
+        margin-bottom: 15px;
+    }
+
+    .danger-box {
+        padding: 16px;
+        border-radius: 10px;
+        background-color: #fef2f2;
+        border-left: 5px solid #ef4444;
+        margin-bottom: 15px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# =========================================================
+# 4. EXPECTED CUSTOMER FEATURES
+# =========================================================
+
+FEATURE_COLUMNS = [
+    "gender",
+    "SeniorCitizen",
+    "Partner",
+    "Dependents",
+    "tenure",
+    "PhoneService",
+    "MultipleLines",
+    "InternetService",
+    "OnlineSecurity",
+    "OnlineBackup",
+    "DeviceProtection",
+    "TechSupport",
+    "StreamingTV",
+    "StreamingMovies",
+    "Contract",
+    "PaperlessBilling",
+    "PaymentMethod",
+    "MonthlyCharges",
+    "TotalCharges",
+]
+
+
+# =========================================================
+# 5. LOAD MODEL
+# =========================================================
 
 @st.cache_resource
 def load_model(path):
     return joblib.load(path)
 
 
+# =========================================================
+# 6. LOAD DATASET
+# =========================================================
+
 @st.cache_data
 def read_csv_file(path):
     return pd.read_csv(path)
 
 
-@st.cache_data
 def prepare_dataset(data):
+    """Clean the Telco customer churn dataset."""
+
     data = data.copy()
 
-    data["TotalCharges"] = pd.to_numeric(
-        data["TotalCharges"], errors="coerce"
-    )
+    # Remove spaces around column names
+    data.columns = data.columns.str.strip()
 
-    data = data.dropna(subset=["Churn"])
+    # Remove customer ID because it is not a useful predictor
+    if "customerID" in data.columns:
+        data = data.drop(columns=["customerID"])
+
+    # Convert TotalCharges into numeric values
+    if "TotalCharges" in data.columns:
+        data["TotalCharges"] = pd.to_numeric(
+            data["TotalCharges"],
+            errors="coerce",
+        )
+
+    # Convert churn labels to numeric values for charts
+    if "Churn" in data.columns:
+        data["Churn"] = (
+            data["Churn"]
+            .astype(str)
+            .str.strip()
+            .replace({"Yes": 1, "No": 0})
+        )
+
+        data["Churn"] = pd.to_numeric(
+            data["Churn"],
+            errors="coerce",
+        )
 
     return data
 
 
-# ==================================================
-# 4. SIDEBAR AND NAVIGATION
-# ==================================================
-
-st.sidebar.title("📊 Customer Churn AI")
-st.sidebar.caption("Machine Learning Dashboard")
-st.sidebar.markdown("---")
-
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "Dashboard",
-        "Predict Churn",
-        "Feature Importance",
-        "Model Evaluation",
-        "About Project"
-    ]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.info(
-    "Predict customer churn, explore important features "
-    "and evaluate machine learning models."
-)
-
-# ==================================================
-# 5. LOAD MODEL AND DATA
-# ==================================================
+# =========================================================
+# 7. LOAD MODEL AND DATASET
+# =========================================================
 
 if not os.path.exists(MODEL_PATH):
     st.error(
-        "churn_model.pkl file nahi mili. "
-        "Project folder mein model file rakhein aur "
-        "pehle python train_model.py run karein."
+        "Model file nahi mila. "
+        "Please make sure churn_model.pkl "
+        "app.py ke saath project folder mein hai."
     )
     st.stop()
 
 try:
     model = load_model(MODEL_PATH)
-except Exception as e:
-    st.error(f"Model load nahi hua: {e}")
+except Exception as error:
+    st.error(f"Model load nahi ho saka: {error}")
     st.stop()
+
 
 df = None
 
+# First try loading the CSV from the project folder
 if os.path.exists(DATA_PATH):
     try:
         df = prepare_dataset(read_csv_file(DATA_PATH))
-    except Exception as e:
-        st.sidebar.warning(f"Dataset load error: {e}")
+    except Exception as error:
+        st.sidebar.warning(
+            f"Default CSV load nahi ho saka: {error}"
+        )
 
+# Optional fallback: upload CSV only if the bundled file is missing
 if df is None:
-    st.sidebar.warning("Default CSV path par dataset nahi mila.")
+    st.sidebar.warning(
+        "Project folder mein default CSV nahi mili. "
+        "Aap CSV upload kar sakte hain."
+    )
 
     uploaded_file = st.sidebar.file_uploader(
         "Upload Telco CSV dataset",
-        type=["csv"]
+        type=["csv"],
     )
 
     if uploaded_file is not None:
         try:
-            uploaded_df = pd.read_csv(uploaded_file)
-            df = prepare_dataset(uploaded_df)
-        except Exception as e:
-            st.error(f"CSV read nahi hui: {e}")
-
-# ==================================================
-# 6. HELPER FUNCTIONS
-# ==================================================
-
-TARGET = "Churn"
-ID_COLUMN = "customerID"
+            df = prepare_dataset(
+                pd.read_csv(uploaded_file)
+            )
+            st.sidebar.success("CSV successfully loaded.")
+        except Exception as error:
+            st.sidebar.error(
+                f"CSV read nahi ho saki: {error}"
+            )
 
 
-def make_preprocessor(X):
-    numeric_features = X.select_dtypes(
-        include=["number"]
-    ).columns.tolist()
+# =========================================================
+# 8. SIDEBAR NAVIGATION
+# =========================================================
 
-    categorical_features = X.select_dtypes(
-        exclude=["number"]
-    ).columns.tolist()
+st.sidebar.title("📊 Customer Churn AI")
+st.sidebar.caption("Customer Retention Analytics")
 
-    numeric_transformer = Pipeline([
-        ("imputer", SimpleImputer(strategy="median")),
-        ("scaler", StandardScaler())
-    ])
+page = st.sidebar.radio(
+    "Navigate",
+    [
+        "Dashboard",
+        "Predict Churn",
+        "Feature Importance",
+        "Model Evaluation",
+        "About Project",
+    ],
+)
 
-    categorical_transformer = Pipeline([
-        (
-            "imputer",
-            SimpleImputer(strategy="most_frequent")
-        ),
-        (
-            "onehot",
-            OneHotEncoder(handle_unknown="ignore")
-        )
-    ])
-
-    return ColumnTransformer([
-        ("num", numeric_transformer, numeric_features),
-        ("cat", categorical_transformer, categorical_features)
-    ])
+st.sidebar.divider()
+st.sidebar.info(
+    "This application uses a trained machine learning "
+    "model to estimate customer churn."
+)
 
 
-def prepare_training_data(data):
-    required = {"Churn", "customerID"}
+# =========================================================
+# 9. HELPER FUNCTIONS
+# =========================================================
 
-    if not required.issubset(data.columns):
-        raise ValueError(
-            "CSV mein Churn aur customerID columns hone chahiye."
-        )
+def get_churn_labels(data):
+    """Return Yes/No churn labels for display."""
 
-    work = data.copy()
-    work["TotalCharges"] = pd.to_numeric(
-        work["TotalCharges"], errors="coerce"
+    labels = data["Churn"].map(
+        {1: "Yes", 0: "No"}
     )
 
-    y = work["Churn"].map({"Yes": 1, "No": 0})
+    return labels.fillna("Unknown")
 
-    valid = y.notna()
-    work = work.loc[valid].copy()
-    y = y.loc[valid].astype(int)
 
-    X = work.drop(columns=["Churn", "customerID"])
+def get_prediction_probability(estimator, row):
+    """Return churn probability when predict_proba is available."""
 
-    # Match the feature structure expected by the saved model.
+    if hasattr(estimator, "predict_proba"):
+        probabilities = estimator.predict_proba(row)
+
+        if probabilities.ndim == 2:
+            classes = getattr(
+                estimator,
+                "classes_",
+                None,
+            )
+
+            if classes is not None:
+                for index, class_value in enumerate(classes):
+                    if str(class_value).strip().lower() in (
+                        "1",
+                        "yes",
+                        "true",
+                    ):
+                        return float(probabilities[0][index])
+
+            # Binary classifiers commonly put the positive class
+            # in the second column.
+            if probabilities.shape[1] >= 2:
+                return float(probabilities[0][1])
+
+    return None
+
+
+def get_feature_importance(estimator):
+    """
+    Try to get feature importance from a model or pipeline.
+    Returns a DataFrame or None.
+    """
+
+    model_object = estimator
+    preprocessor = None
+
+    if hasattr(estimator, "named_steps"):
+        steps = list(estimator.named_steps.items())
+
+        if len(steps) > 0:
+            model_object = steps[-1][1]
+
+        for _, step in steps[:-1]:
+            if hasattr(step, "get_feature_names_out"):
+                preprocessor = step
+
+    importance_values = None
+
+    if hasattr(model_object, "feature_importances_"):
+        importance_values = model_object.feature_importances_
+
+    elif hasattr(model_object, "coef_"):
+        coefficients = np.asarray(model_object.coef_)
+
+        if coefficients.ndim == 2:
+            importance_values = np.abs(
+                coefficients[0]
+            )
+        else:
+            importance_values = np.abs(coefficients)
+
+    if importance_values is None:
+        return None
+
+    feature_names = None
+
+    if preprocessor is not None:
+        try:
+            feature_names = (
+                preprocessor.get_feature_names_out()
+            )
+        except Exception:
+            feature_names = None
+
+    if feature_names is None:
+        feature_names = getattr(
+            estimator,
+            "feature_names_in_",
+            None,
+        )
+
+    if feature_names is None:
+        feature_names = [
+            f"Feature {index + 1}"
+            for index in range(len(importance_values))
+        ]
+
+    if len(feature_names) != len(importance_values):
+        feature_names = [
+            f"Feature {index + 1}"
+            for index in range(len(importance_values))
+        ]
+
+    result = pd.DataFrame(
+        {
+            "Feature": feature_names,
+            "Importance": importance_values,
+        }
+    )
+
+    return result.sort_values(
+        "Importance",
+        ascending=False,
+    )
+
+
+def get_evaluation_data(data):
+    """Prepare features and target for basic model evaluation."""
+
+    if data is None or "Churn" not in data.columns:
+        return None, None
+
+    available_features = [
+        column
+        for column in FEATURE_COLUMNS
+        if column in data.columns
+    ]
+
+    if not available_features:
+        return None, None
+
+    clean_data = data.copy()
+    clean_data = clean_data.dropna(
+        subset=["Churn"]
+    )
+
+    y = clean_data["Churn"].astype(int)
+
+    X = clean_data[available_features].copy()
+
+    # Evaluation uses the dataset's available predictor columns.
+    # The saved model must accept the same feature format.
     return X, y
 
 
-@st.cache_data
-def calculate_model_evaluation(data):
-    X, y = prepare_training_data(data)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.2,
-        random_state=42,
-        stratify=y
-    )
-
-    models = {
-        "Logistic Regression": LogisticRegression(
-            max_iter=1000
-        ),
-        "Random Forest": RandomForestClassifier(
-            n_estimators=200,
-            random_state=42,
-            class_weight="balanced"
-        )
-    }
-
-    results = {}
-    fitted_models = {}
-
-    for name, estimator in models.items():
-        pipeline = Pipeline([
-            ("preprocessor", make_preprocessor(X_train)),
-            ("model", estimator)
-        ])
-
-        pipeline.fit(X_train, y_train)
-
-        predictions = pipeline.predict(X_test)
-        probabilities = pipeline.predict_proba(X_test)[:, 1]
-
-        results[name] = {
-            "Accuracy": accuracy_score(y_test, predictions),
-            "Precision": precision_score(
-                y_test, predictions, zero_division=0
-            ),
-            "Recall": recall_score(
-                y_test, predictions, zero_division=0
-            ),
-            "F1-score": f1_score(
-                y_test, predictions, zero_division=0
-            ),
-            "ROC-AUC": roc_auc_score(y_test, probabilities),
-            "Confusion Matrix": confusion_matrix(
-                y_test, predictions
-            ),
-            "Predictions": predictions,
-            "Probabilities": probabilities
-        }
-
-        fitted_models[name] = pipeline
-
-    return (
-        X_train, X_test, y_train, y_test,
-        results, fitted_models
-    )
-
-
-def get_churn_probability(pipeline, customer):
-    prediction = int(pipeline.predict(customer)[0])
-
-    probability = None
-    if hasattr(pipeline, "predict_proba"):
-        probability = float(
-            pipeline.predict_proba(customer)[0][1]
-        )
-
-    return prediction, probability
-
-
-# ==================================================
-# 7. DASHBOARD PAGE
-# ==================================================
+# =========================================================
+# 10. DASHBOARD PAGE
+# =========================================================
 
 if page == "Dashboard":
 
-    st.title("📊 Customer Churn Dashboard")
-    st.write(
-        "Customer retention aur churn patterns ka overview."
+    st.markdown(
+        '<div class="main-title">'
+        '📊 Customer Churn Dashboard'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="sub-title">'
+        'Understand customer behaviour and churn patterns.'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
     if df is None:
         st.warning(
-            "Dashboard ke liye Telco CSV dataset upload karein "
-            "sidebar se."
+            "Dashboard dikhane ke liye dataset load nahi hua. "
+            "WA_Fn-UseC_-Telco-Customer-Churn.csv ko "
+            "app.py ke saath project folder mein rakhein "
+            "aur GitHub par upload karein."
         )
+
+    elif "Churn" not in df.columns:
+        st.error(
+            "Dataset mein 'Churn' column nahi mila."
+        )
+
     else:
         total_customers = len(df)
-        churned = int(
-            (df["Churn"].astype(str).str.strip() == "Yes").sum()
+
+        churn_count = int(
+            (df["Churn"] == 1).sum()
         )
-        retained = total_customers - churned
+
+        retained_count = int(
+            (df["Churn"] == 0).sum()
+        )
 
         churn_rate = (
-            churned / total_customers * 100
-            if total_customers else 0
+            churn_count / total_customers * 100
+            if total_customers > 0
+            else 0
         )
 
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Total Customers", f"{total_customers:,}")
-        c2.metric("Churned Customers", f"{churned:,}")
-        c3.metric("Retained Customers", f"{retained:,}")
-        c4.metric("Churn Rate", f"{churn_rate:.1f}%")
+        average_monthly = (
+            df["MonthlyCharges"].mean()
+            if "MonthlyCharges" in df.columns
+            else 0
+        )
 
-        st.markdown("## Customer Analytics")
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric(
+            "Total Customers",
+            f"{total_customers:,}",
+        )
+
+        col2.metric(
+            "Churned Customers",
+            f"{churn_count:,}",
+        )
+
+        col3.metric(
+            "Churn Rate",
+            f"{churn_rate:.2f}%",
+        )
+
+        col4.metric(
+            "Avg. Monthly Charges",
+            f"${average_monthly:,.2f}",
+        )
+
+        st.divider()
 
         left, right = st.columns(2)
 
         with left:
-            st.subheader("Churn Distribution")
+            st.subheader("Customer Churn Distribution")
 
-            counts = df["Churn"].value_counts().reindex(
-                ["No", "Yes"], fill_value=0
+            churn_counts = (
+                get_churn_labels(df)
+                .value_counts()
+                .reindex(
+                    ["No", "Yes"],
+                    fill_value=0,
+                )
             )
 
-            fig, ax = plt.subplots()
-            ax.bar(
-                ["Retained", "Churned"],
-                counts.values
+            fig, ax = plt.subplots(figsize=(7, 4))
+
+            ax.pie(
+                churn_counts.values,
+                labels=churn_counts.index,
+                autopct="%1.1f%%",
+                startangle=90,
             )
-            ax.set_ylabel("Number of Customers")
-            ax.set_title("Churn vs Retention")
+
+            ax.set_title("Churn vs Retained Customers")
             st.pyplot(fig)
             plt.close(fig)
 
         with right:
-            st.subheader("Contract Type")
+            st.subheader("Churn by Contract Type")
 
             if "Contract" in df.columns:
-                contract_churn = pd.crosstab(
-                    df["Contract"],
-                    df["Churn"].astype(str).str.strip()
+                contract_data = df.copy()
+
+                contract_data["ChurnLabel"] = (
+                    get_churn_labels(contract_data)
                 )
 
-                st.bar_chart(contract_churn)
+                contract_table = pd.crosstab(
+                    contract_data["Contract"],
+                    contract_data["ChurnLabel"],
+                )
+
+                fig, ax = plt.subplots(figsize=(7, 4))
+
+                contract_table.plot(
+                    kind="bar",
+                    ax=ax,
+                )
+
+                ax.set_xlabel("Contract Type")
+                ax.set_ylabel("Number of Customers")
+                ax.set_title("Contract and Churn")
+                ax.tick_params(axis="x", rotation=20)
+                ax.legend(title="Churn")
+
+                st.pyplot(fig)
+                plt.close(fig)
             else:
                 st.info("Contract column available nahi hai.")
 
-        st.subheader("Monthly Charges by Churn")
+        st.divider()
 
-        if "MonthlyCharges" in df.columns:
-            charge_summary = df.groupby("Churn")[
-                "MonthlyCharges"
-            ].mean()
+        left, right = st.columns(2)
 
-            st.bar_chart(charge_summary)
+        with left:
+            st.subheader("Monthly Charges Distribution")
+
+            if "MonthlyCharges" in df.columns:
+                fig, ax = plt.subplots(figsize=(7, 4))
+
+                sns.histplot(
+                    data=df,
+                    x="MonthlyCharges",
+                    hue="Churn" if "Churn" in df.columns else None,
+                    kde=True,
+                    ax=ax,
+                )
+
+                ax.set_title("Monthly Charges")
+                st.pyplot(fig)
+                plt.close(fig)
+
+        with right:
+            st.subheader("Customer Tenure")
+
+            if "tenure" in df.columns:
+                fig, ax = plt.subplots(figsize=(7, 4))
+
+                sns.histplot(
+                    data=df,
+                    x="tenure",
+                    hue="Churn" if "Churn" in df.columns else None,
+                    bins=20,
+                    kde=True,
+                    ax=ax,
+                )
+
+                ax.set_title("Tenure Distribution")
+                ax.set_xlabel("Tenure (months)")
+                st.pyplot(fig)
+                plt.close(fig)
+
+        st.divider()
 
         st.subheader("Dataset Preview")
-        st.dataframe(df.head(10), use_container_width=True)
+        st.dataframe(
+            df.head(20),
+            use_container_width=True,
+        )
+
+        csv_data = df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            "⬇️ Download Dataset CSV",
+            data=csv_data,
+            file_name="customer_churn_data.csv",
+            mime="text/csv",
+        )
 
 
-# ==================================================
-# 8. PREDICT CHURN PAGE
-# ==================================================
+# =========================================================
+# 11. PREDICT CHURN PAGE
+# =========================================================
 
 elif page == "Predict Churn":
 
-    st.title("🔮 Predict Customer Churn")
-    st.write(
-        "Customer details enter karein aur prediction hasil karein."
+    st.markdown(
+        '<div class="main-title">🔮 Predict Customer Churn</div>',
+        unsafe_allow_html=True,
     )
 
-    with st.form("prediction_form"):
+    st.markdown(
+        '<div class="sub-title">'
+        'Enter customer details to estimate churn risk.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
-        st.subheader("Customer Information")
+    st.info(
+        "Prediction saved model ke basis par hogi. "
+        "Ye estimate hai, customer ke future behaviour ki guarantee nahi."
+    )
 
-        c1, c2, c3 = st.columns(3)
+    with st.form("churn_prediction_form"):
 
-        with c1:
-            gender = st.selectbox("Gender", ["Female", "Male"])
-            senior = st.selectbox("Senior Citizen", [0, 1])
-            partner = st.selectbox("Partner", ["Yes", "No"])
-            dependents = st.selectbox("Dependents", ["Yes", "No"])
-            tenure = st.slider("Tenure (months)", 0, 72, 12)
-            phone = st.selectbox("Phone Service", ["Yes", "No"])
+        st.subheader("Personal Information")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            gender = st.selectbox(
+                "Gender",
+                ["Female", "Male"],
+            )
+
+        with col2:
+            senior_citizen = st.selectbox(
+                "Senior Citizen",
+                [0, 1],
+                format_func=lambda value: (
+                    "Yes" if value == 1 else "No"
+                ),
+            )
+
+        with col3:
+            partner = st.selectbox(
+                "Has Partner?",
+                ["Yes", "No"],
+            )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            dependents = st.selectbox(
+                "Has Dependents?",
+                ["Yes", "No"],
+            )
+
+        with col2:
+            tenure = st.slider(
+                "Tenure (months)",
+                min_value=0,
+                max_value=72,
+                value=12,
+            )
+
+        st.divider()
+        st.subheader("Services")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            phone_service = st.selectbox(
+                "Phone Service",
+                ["Yes", "No"],
+            )
+
+            internet_service = st.selectbox(
+                "Internet Service",
+                ["DSL", "Fiber optic", "No"],
+            )
+
+            online_security = st.selectbox(
+                "Online Security",
+                ["Yes", "No", "No internet service"],
+            )
+
+            online_backup = st.selectbox(
+                "Online Backup",
+                ["Yes", "No", "No internet service"],
+            )
+
+        with col2:
             multiple_lines = st.selectbox(
                 "Multiple Lines",
-                ["No", "Yes", "No phone service"]
+                ["Yes", "No", "No phone service"],
             )
 
-        with c2:
-            internet = st.selectbox(
-                "Internet Service",
-                ["DSL", "Fiber optic", "No"]
-            )
-            security = st.selectbox(
-                "Online Security",
-                ["Yes", "No", "No internet service"]
-            )
-            backup = st.selectbox(
-                "Online Backup",
-                ["Yes", "No", "No internet service"]
-            )
-            protection = st.selectbox(
+            device_protection = st.selectbox(
                 "Device Protection",
-                ["Yes", "No", "No internet service"]
-            )
-            support = st.selectbox(
-                "Tech Support",
-                ["Yes", "No", "No internet service"]
-            )
-            tv = st.selectbox(
-                "Streaming TV",
-                ["Yes", "No", "No internet service"]
-            )
-            movies = st.selectbox(
-                "Streaming Movies",
-                ["Yes", "No", "No internet service"]
+                ["Yes", "No", "No internet service"],
             )
 
-        with c3:
+            tech_support = st.selectbox(
+                "Tech Support",
+                ["Yes", "No", "No internet service"],
+            )
+
+        with col3:
+            streaming_tv = st.selectbox(
+                "Streaming TV",
+                ["Yes", "No", "No internet service"],
+            )
+
+            streaming_movies = st.selectbox(
+                "Streaming Movies",
+                ["Yes", "No", "No internet service"],
+            )
+
+        st.divider()
+        st.subheader("Billing and Contract")
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
             contract = st.selectbox(
                 "Contract",
-                ["Month-to-month", "One year", "Two year"]
+                [
+                    "Month-to-month",
+                    "One year",
+                    "Two year",
+                ],
             )
-            paperless = st.selectbox(
-                "Paperless Billing", ["Yes", "No"]
+
+            paperless_billing = st.selectbox(
+                "Paperless Billing",
+                ["Yes", "No"],
             )
-            payment = st.selectbox(
+
+        with col2:
+            payment_method = st.selectbox(
                 "Payment Method",
                 [
                     "Electronic check",
                     "Mailed check",
                     "Bank transfer (automatic)",
-                    "Credit card (automatic)"
-                ]
+                    "Credit card (automatic)",
+                ],
             )
-            monthly = st.number_input(
-                "Monthly Charges",
+
+            monthly_charges = st.number_input(
+                "Monthly Charges ($)",
                 min_value=0.0,
                 max_value=1000.0,
-                value=70.0
+                value=70.0,
+                step=1.0,
             )
-            total = st.number_input(
-                "Total Charges",
+
+        with col3:
+            total_charges = st.number_input(
+                "Total Charges ($)",
                 min_value=0.0,
                 max_value=100000.0,
-                value=840.0
+                value=float(monthly_charges * tenure),
+                step=10.0,
             )
 
         submitted = st.form_submit_button(
-            "Predict Churn", use_container_width=True
+            "🔍 Predict Churn",
+            use_container_width=True,
         )
 
     if submitted:
-        customer = pd.DataFrame([{
-            "gender": gender,
-            "SeniorCitizen": senior,
-            "Partner": partner,
-            "Dependents": dependents,
-            "tenure": tenure,
-            "PhoneService": phone,
-            "MultipleLines": multiple_lines,
-            "InternetService": internet,
-            "OnlineSecurity": security,
-            "OnlineBackup": backup,
-            "DeviceProtection": protection,
-            "TechSupport": support,
-            "StreamingTV": tv,
-            "StreamingMovies": movies,
-            "Contract": contract,
-            "PaperlessBilling": paperless,
-            "PaymentMethod": payment,
-            "MonthlyCharges": monthly,
-            "TotalCharges": total
-        }])
+
+        customer = pd.DataFrame(
+            [
+                {
+                    "gender": gender,
+                    "SeniorCitizen": senior_citizen,
+                    "Partner": partner,
+                    "Dependents": dependents,
+                    "tenure": tenure,
+                    "PhoneService": phone_service,
+                    "MultipleLines": multiple_lines,
+                    "InternetService": internet_service,
+                    "OnlineSecurity": online_security,
+                    "OnlineBackup": online_backup,
+                    "DeviceProtection": device_protection,
+                    "TechSupport": tech_support,
+                    "StreamingTV": streaming_tv,
+                    "StreamingMovies": streaming_movies,
+                    "Contract": contract,
+                    "PaperlessBilling": paperless_billing,
+                    "PaymentMethod": payment_method,
+                    "MonthlyCharges": monthly_charges,
+                    "TotalCharges": total_charges,
+                }
+            ]
+        )
 
         try:
-            prediction, probability = get_churn_probability(
-                model, customer
+            # Use the same raw feature names expected by the model.
+            if hasattr(model, "feature_names_in_"):
+                expected_columns = list(
+                    model.feature_names_in_
+                )
+
+                missing_columns = [
+                    column
+                    for column in expected_columns
+                    if column not in customer.columns
+                ]
+
+                if missing_columns:
+                    st.error(
+                        "Model ko kuch extra features chahiye: "
+                        + ", ".join(missing_columns)
+                    )
+                    st.stop()
+
+                customer = customer[expected_columns]
+
+            prediction = model.predict(customer)[0]
+
+            probability = get_prediction_probability(
+                model,
+                customer,
             )
 
-            st.markdown("---")
-            st.subheader("Prediction Result")
+            is_churn = str(prediction).strip().lower() in (
+                "1",
+                "yes",
+                "true",
+            )
 
-            if prediction == 1:
-                st.error("⚠️ Model predicts that the customer may churn.")
+            if is_churn:
+                st.markdown(
+                    '<div class="danger-box">'
+                    '<h3>⚠️ High Churn Concern</h3>'
+                    'Model predicts that this customer may churn.'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
             else:
-                st.success("✅ Model predicts that the customer may stay.")
+                st.markdown(
+                    '<div class="success-box">'
+                    '<h3>✅ Customer Likely to Stay</h3>'
+                    'Model predicts that this customer may stay.'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
 
             if probability is not None:
                 st.metric(
                     "Estimated Churn Probability",
-                    f"{probability * 100:.1f}%"
+                    f"{probability * 100:.2f}%",
                 )
-                st.progress(probability)
 
-            st.caption(
-                "Prediction estimate hai, guaranteed outcome nahi."
+                st.progress(
+                    max(0.0, min(1.0, probability))
+                )
+
+            st.subheader("Customer Details")
+            st.dataframe(
+                customer,
+                use_container_width=True,
             )
 
-        except Exception as e:
+            if is_churn:
+                st.subheader("Suggested Retention Actions")
+
+                st.write(
+                    "- Offer a suitable contract or retention plan."
+                )
+                st.write(
+                    "- Review monthly charges and available discounts."
+                )
+                st.write(
+                    "- Improve customer support and follow up."
+                )
+                st.write(
+                    "- Check whether the customer needs additional services."
+                )
+
+        except Exception as error:
             st.error(
-                f"Prediction error: {e}. "
-                "Check karein ki model isi feature structure se train hua tha."
+                "Prediction nahi ho saki. Check karein ki "
+                "churn_model.pkl isi feature format ke saath train hua tha."
             )
+            st.code(str(error))
 
 
-# ==================================================
-# 9. FEATURE IMPORTANCE PAGE
-# ==================================================
+# =========================================================
+# 12. FEATURE IMPORTANCE PAGE
+# =========================================================
 
 elif page == "Feature Importance":
 
-    st.title("🔍 Feature Importance")
-    st.write(
-        "Yeh analysis batata hai ki kisi feature ko shuffle karne se "
-        "model ki ROC-AUC performance kitni badalti hai."
+    st.markdown(
+        '<div class="main-title">🎯 Feature Importance</div>',
+        unsafe_allow_html=True,
     )
 
-    if df is None:
-        st.warning(
-            "Feature Importance ke liye sidebar se dataset CSV upload karein."
-        )
-    else:
-        try:
-            with st.spinner("Feature importance calculate ho rahi hai..."):
+    st.markdown(
+        '<div class="sub-title">'
+        'Explore which model features contribute most to predictions.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
-                (
-                    X_train, X_test, y_train, y_test,
-                    results, fitted_models
-                ) = calculate_model_evaluation(df)
+    try:
+        importance_df = get_feature_importance(model)
 
-                selected_name = st.selectbox(
-                    "Model select karein",
-                    list(fitted_models.keys())
-                )
-
-                selected_model = fitted_models[selected_name]
-
-                importance = permutation_importance(
-                    selected_model,
-                    X_test,
-                    y_test,
-                    scoring="roc_auc",
-                    n_repeats=3,
-                    random_state=42,
-                    n_jobs=1
-                )
-
-                importance_df = pd.DataFrame({
-                    "Feature": X_test.columns,
-                    "Importance": importance.importances_mean
-                })
-
-                importance_df = importance_df.sort_values(
-                    "Importance", ascending=False
-                )
-
-            st.subheader("Most Influential Features")
+        if importance_df is None:
+            st.warning(
+                "Is saved model se direct feature importance "
+                "available nahi hai. Agar model mein tree-based "
+                "estimator ya linear coefficients hain, to yahan "
+                "importance dikh sakti hai."
+            )
+        else:
+            st.subheader("Most Important Features")
 
             top_n = st.slider(
                 "Number of features",
                 min_value=5,
-                max_value=min(19, len(importance_df)),
-                value=min(10, len(importance_df))
+                max_value=max(
+                    5,
+                    min(30, len(importance_df)),
+                ),
+                value=min(10, len(importance_df)),
             )
 
-            top_features = importance_df.head(top_n).sort_values(
-                "Importance"
+            top_features = importance_df.head(top_n)
+
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+            sns.barplot(
+                data=top_features,
+                x="Importance",
+                y="Feature",
+                ax=ax,
             )
 
-            fig, ax = plt.subplots(figsize=(9, 6))
-            ax.barh(
-                top_features["Feature"],
-                top_features["Importance"]
-            )
-            ax.set_xlabel("Decrease in ROC-AUC after shuffling")
-            ax.set_title(f"{selected_name} - Permutation Importance")
+            ax.set_title("Top Feature Importance")
+            ax.set_xlabel("Importance")
+            ax.set_ylabel("Feature")
+
             st.pyplot(fig)
             plt.close(fig)
 
+            st.subheader("Complete Importance Table")
             st.dataframe(
-                importance_df.reset_index(drop=True),
-                use_container_width=True
+                importance_df,
+                use_container_width=True,
             )
 
-            st.info(
-                "Positive importance ka matlab hai ki feature shuffle "
-                "karne par model performance ghati. Near-zero ya negative "
-                "values ka matlab feature ka measured contribution kam "
-                "ya unstable ho sakta hai. Yeh causation prove nahi karta."
+            st.download_button(
+                "⬇️ Download Feature Importance",
+                data=importance_df.to_csv(
+                    index=False
+                ).encode("utf-8"),
+                file_name="feature_importance.csv",
+                mime="text/csv",
             )
 
-        except Exception as e:
-            st.error(f"Feature importance error: {e}")
+    except Exception as error:
+        st.error(
+            f"Feature importance display nahi ho saki: {error}"
+        )
 
 
-# ==================================================
-# 10. MODEL EVALUATION PAGE
-# ==================================================
+# =========================================================
+# 13. MODEL EVALUATION PAGE
+# =========================================================
 
 elif page == "Model Evaluation":
 
-    st.title("📈 Model Evaluation Dashboard")
-    st.write(
-        "Dono machine learning models ko same test split par compare karein."
+    st.markdown(
+        '<div class="main-title">📈 Model Evaluation</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        '<div class="sub-title">'
+        'Review performance metrics for the saved model.'
+        '</div>',
+        unsafe_allow_html=True,
     )
 
     if df is None:
         st.warning(
-            "Model Evaluation ke liye sidebar se dataset CSV upload karein."
+            "Model evaluation ke liye dataset load nahi hua."
         )
+
+    elif "Churn" not in df.columns:
+        st.error("Dataset mein Churn target column nahi mila.")
+
     else:
         try:
-            with st.spinner("Models train aur evaluate ho rahe hain..."):
+            X, y = get_evaluation_data(df)
 
-                (
-                    X_train, X_test, y_train, y_test,
-                    results, fitted_models
-                ) = calculate_model_evaluation(df)
+            if X is None or y is None:
+                st.error(
+                    "Dataset mein evaluation ke liye required "
+                    "feature columns nahi mile."
+                )
+            else:
+                # A separate holdout split gives a useful evaluation
+                # only when the saved model accepts these raw columns
+                # and was trained using compatible preprocessing.
+                X_train, X_test, y_train, y_test = train_test_split(
+                    X,
+                    y,
+                    test_size=0.2,
+                    random_state=42,
+                    stratify=y if y.nunique() > 1 else None,
+                )
 
-            summary = pd.DataFrame(results).T[
-                ["Accuracy", "Precision", "Recall", "F1-score", "ROC-AUC"]
-            ]
+                st.info(
+                    "Metrics neeche dataset ke 20% holdout subset par "
+                    "calculate ki jaati hain. Model ka input format "
+                    "training ke format se match hona chahiye."
+                )
 
-            summary_display = summary.style.format("{:.3f}")
+                y_pred = model.predict(X_test)
 
-            st.subheader("Model Comparison")
-            st.dataframe(
-                summary_display,
-                use_container_width=True
-            )
+                accuracy = accuracy_score(
+                    y_test,
+                    y_pred,
+                )
 
-            chosen = st.selectbox(
-                "Model ke detailed results dekhein",
-                list(results.keys())
-            )
+                col1, col2 = st.columns(2)
 
-            metrics = results[chosen]
+                col1.metric(
+                    "Holdout Accuracy",
+                    f"{accuracy * 100:.2f}%",
+                )
 
-            a, b, c, d, e = st.columns(5)
-            a.metric("Accuracy", f"{metrics['Accuracy']:.1%}")
-            b.metric("Precision", f"{metrics['Precision']:.1%}")
-            c.metric("Recall", f"{metrics['Recall']:.1%}")
-            d.metric("F1-score", f"{metrics['F1-score']:.3f}")
-            e.metric("ROC-AUC", f"{metrics['ROC-AUC']:.3f}")
+                probability = None
 
-            st.subheader("Confusion Matrix")
+                if hasattr(model, "predict_proba"):
+                    try:
+                        probability = model.predict_proba(
+                            X_test
+                        )
 
-            cm = metrics["Confusion Matrix"]
+                        if (
+                            probability.ndim == 2
+                            and probability.shape[1] >= 2
+                            and y_test.nunique() == 2
+                        ):
+                            auc = roc_auc_score(
+                                y_test,
+                                probability[:, 1],
+                            )
 
-            fig, ax = plt.subplots()
-            image = ax.imshow(cm)
-            ax.set_xticks([0, 1])
-            ax.set_yticks([0, 1])
-            ax.set_xticklabels(["Predicted Stay", "Predicted Churn"])
-            ax.set_yticklabels(["Actual Stay", "Actual Churn"])
-            ax.set_xlabel("Prediction")
-            ax.set_ylabel("Actual")
-            ax.set_title(chosen)
-
-            for i in range(2):
-                for j in range(2):
-                    ax.text(
-                        j, i, str(cm[i, j]),
-                        ha="center", va="center"
+                            col2.metric(
+                                "ROC-AUC",
+                                f"{auc:.3f}",
+                            )
+                    except Exception:
+                        col2.metric(
+                            "ROC-AUC",
+                            "Not available",
+                        )
+                else:
+                    col2.metric(
+                        "ROC-AUC",
+                        "Not available",
                     )
 
-            fig.colorbar(image, ax=ax)
-            st.pyplot(fig)
-            plt.close(fig)
+                st.divider()
+                st.subheader("Confusion Matrix")
 
-            st.subheader("ROC Curve")
+                cm = confusion_matrix(
+                    y_test,
+                    y_pred,
+                    labels=[0, 1],
+                )
 
-            probabilities = metrics["Probabilities"]
-            fpr, tpr, _ = roc_curve(y_test, probabilities)
+                fig, ax = plt.subplots(figsize=(6, 4))
 
-            fig, ax = plt.subplots()
-            ax.plot(fpr, tpr, label=f"AUC = {metrics['ROC-AUC']:.3f}")
-            ax.plot([0, 1], [0, 1], linestyle="--")
-            ax.set_xlabel("False Positive Rate")
-            ax.set_ylabel("True Positive Rate")
-            ax.set_title(f"ROC Curve - {chosen}")
-            ax.legend()
-            st.pyplot(fig)
-            plt.close(fig)
+                sns.heatmap(
+                    cm,
+                    annot=True,
+                    fmt="d",
+                    cmap="Blues",
+                    xticklabels=["Predicted No", "Predicted Yes"],
+                    yticklabels=["Actual No", "Actual Yes"],
+                    ax=ax,
+                )
 
-            st.subheader("Classification Report")
+                ax.set_xlabel("Prediction")
+                ax.set_ylabel("Actual")
+                ax.set_title("Confusion Matrix")
 
-            report = classification_report(
-                y_test,
-                metrics["Predictions"],
-                target_names=["Stay (0)", "Churn (1)"],
-                output_dict=True,
-                zero_division=0
+                st.pyplot(fig)
+                plt.close(fig)
+
+                st.divider()
+                st.subheader("Classification Report")
+
+                report = classification_report(
+                    y_test,
+                    y_pred,
+                    labels=[0, 1],
+                    target_names=["No Churn", "Churn"],
+                    output_dict=True,
+                    zero_division=0,
+                )
+
+                report_df = pd.DataFrame(
+                    report
+                ).transpose()
+
+                st.dataframe(
+                    report_df.round(3),
+                    use_container_width=True,
+                )
+
+                st.caption(
+                    "Note: evaluation metrics meaningful tabhi hain "
+                    "jab saved model ko training jaisa compatible "
+                    "input data diya ja raha ho."
+                )
+
+        except Exception as error:
+            st.error(
+                "Evaluation run nahi ho saki. Saved model ki "
+                "preprocessing aur dataset features verify karein."
             )
-
-            st.dataframe(
-                pd.DataFrame(report).T.round(3),
-                use_container_width=True
-            )
-
-            st.caption(
-                "Evaluation page models ko same split aur training setup "
-                "par dobara fit karta hai. Yeh saved model ki direct "
-                "evaluation nahi, balki reproducible comparison hai."
-            )
-
-        except Exception as e:
-            st.error(f"Model evaluation error: {e}")
+            st.code(str(error))
 
 
-# ==================================================
-# 11. ABOUT PROJECT PAGE
-# ==================================================
+# =========================================================
+# 14. ABOUT PROJECT PAGE
+# =========================================================
 
 elif page == "About Project":
 
-    st.title("ℹ️ About Customer Churn AI")
+    st.markdown(
+        '<div class="main-title">ℹ️ About Project</div>',
+        unsafe_allow_html=True,
+    )
 
-    st.markdown("""
-    ### Project Objective
-    Telecom customers ke churn risk ko Machine Learning se predict karna.
+    st.markdown(
+        """
+        ## Customer Churn Prediction
 
-    ### Models
-    - Logistic Regression
-    - Random Forest
+        Customer Churn Prediction ek machine learning project hai
+        jo customer ke available details ke basis par estimate karta
+        hai ki customer service chhod sakta hai ya nahi.
 
-    ### Technologies
-    - Python
-    - Pandas and NumPy
-    - Scikit-learn
-    - Matplotlib
-    - Streamlit
+        ### Project Objectives
 
-    ### Features
-    - Customer churn prediction
-    - Customer statistics dashboard
-    - Permutation-based feature importance
-    - Model evaluation and comparison
-    - Confusion matrix and ROC curve
+        - Customer churn ko samajhna.
+        - Customer data ko analyse karna.
+        - Churn risk ka prediction karna.
+        - Customer retention strategies mein help karna.
 
-    **Important:** Feature importance model behaviour ka measure hai;
-    yeh apne aap causal relationship prove nahi karta.
-    """)
+        ### Technologies Used
 
-    st.markdown("---")
-    st.caption("Customer Churn AI | Machine Learning Project")
+        - Python
+        - Pandas and NumPy
+        - Scikit-learn
+        - Matplotlib and Seaborn
+        - Streamlit
+        - Joblib
+
+        ### Application Pages
+
+        1. Dashboard
+        2. Predict Churn
+        3. Feature Importance
+        4. Model Evaluation
+        5. About Project
+
+        ### Dataset
+
+        Telco Customer Churn dataset.
+
+        ### Important Note
+
+        Predictions model ke output par based estimates hain.
+        Inhe guaranteed outcomes ya professional business advice
+        nahi samajhna chahiye.
+        """
+    )
+
+    st.divider()
+
+    st.subheader("Project Files")
+
+    st.write(
+        "- `app.py` — Streamlit application"
+    )
+    st.write(
+        "- `churn_model.pkl` — trained model"
+    )
+    st.write(
+        "- `WA_Fn-UseC_-Telco-Customer-Churn.csv` — dataset"
+    )
+    st.write(
+        "- `requirements.txt` — Python dependencies"
+    )
+
+
+# =========================================================
+# 15. FOOTER
+# =========================================================
+
+st.sidebar.divider()
+
+st.sidebar.caption(
+    "Customer Churn Prediction | Built with Python & Streamlit"
+)
