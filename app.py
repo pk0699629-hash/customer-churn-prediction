@@ -46,68 +46,187 @@ DATA_PATH = os.path.join(
 )
 
 
+
 # =========================================================
-# 3. CUSTOM CSS
+# 3. PREMIUM ANALYTICS DESIGN
 # =========================================================
 
 st.markdown(
     """
     <style>
-    .main {
-        background-color: #f7f9fc;
+    /* Main application background */
+    .stApp {
+        background: #f4f7fc;
+        color: #182230;
     }
 
+    /* Main content spacing */
     .block-container {
-        padding-top: 1.5rem;
-        padding-bottom: 2rem;
+        max-width: 1450px;
+        padding-top: 2rem;
+        padding-bottom: 3rem;
     }
 
-    .main-title {
-        font-size: 2.3rem;
-        font-weight: 700;
-        color: #183153;
-        margin-bottom: 0.2rem;
+    /* Main headings */
+    h1 {
+        color: #14213d !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.8px;
     }
 
-    .sub-title {
-        color: #64748b;
-        font-size: 1rem;
-        margin-bottom: 1.5rem;
+    h2, h3 {
+        color: #23395d !important;
+        font-weight: 700 !important;
     }
 
-    div[data-testid="stMetric"] {
-        background-color: white;
-        border: 1px solid #e2e8f0;
-        padding: 18px;
-        border-radius: 12px;
-    }
-
-    div[data-testid="stMetricLabel"] {
+    /* Paragraphs and captions */
+    p, label {
         color: #475569;
     }
 
-    .info-box {
-        padding: 16px;
-        border-radius: 10px;
-        background-color: #eef4ff;
-        border-left: 5px solid #2563eb;
-        margin-bottom: 15px;
+    [data-testid="stCaptionContainer"] {
+        color: #64748b;
     }
 
-    .success-box {
-        padding: 16px;
-        border-radius: 10px;
-        background-color: #ecfdf5;
-        border-left: 5px solid #10b981;
-        margin-bottom: 15px;
+    /* Sidebar */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(
+            180deg,
+            #14213d 0%,
+            #1d3557 100%
+        );
     }
 
-    .danger-box {
-        padding: 16px;
+    [data-testid="stSidebar"] * {
+        color: #f8fafc;
+    }
+
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3 {
+        color: #ffffff !important;
+    }
+
+    [data-testid="stSidebar"] hr {
+        border-color: #405477;
+    }
+
+    /* Metric cards */
+    div[data-testid="stMetric"] {
+        background: #ffffff;
+        border: 1px solid #e5eaf3;
+        border-radius: 16px;
+        padding: 22px 20px;
+        box-shadow: 0 5px 18px rgba(31, 48, 80, 0.06);
+        transition: transform 0.2s ease,
+                    box-shadow 0.2s ease;
+    }
+
+    div[data-testid="stMetric"]:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 10px 25px rgba(31, 48, 80, 0.11);
+    }
+
+    [data-testid="stMetricLabel"] {
+        color: #64748b !important;
+        font-size: 0.9rem !important;
+        font-weight: 600 !important;
+    }
+
+    [data-testid="stMetricValue"] {
+        color: #14213d !important;
+        font-size: 1.8rem !important;
+        font-weight: 800 !important;
+    }
+
+    /* Buttons */
+    .stButton > button,
+    .stDownloadButton > button,
+    [data-testid="stFormSubmitButton"] > button {
+        background: linear-gradient(
+            135deg,
+            #315efb 0%,
+            #6846e8 100%
+        );
+        color: #ffffff !important;
+        border: none;
         border-radius: 10px;
-        background-color: #fef2f2;
-        border-left: 5px solid #ef4444;
-        margin-bottom: 15px;
+        padding: 0.65rem 1.1rem;
+        font-weight: 650;
+        transition: all 0.2s ease;
+    }
+
+    .stButton > button:hover,
+    .stDownloadButton > button:hover,
+    [data-testid="stFormSubmitButton"] > button:hover {
+        border: none;
+        box-shadow: 0 5px 15px rgba(49, 94, 251, 0.25);
+        transform: translateY(-1px);
+    }
+
+    /* Input fields */
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="textarea"] > div {
+        border-radius: 9px;
+        border-color: #d7deeb;
+        background-color: #ffffff;
+    }
+
+    /* Tables */
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"] {
+        background: #ffffff;
+        border: 1px solid #e5eaf3;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    /* Expanders */
+    [data-testid="stExpander"] {
+        background: #ffffff;
+        border: 1px solid #e5eaf3;
+        border-radius: 12px;
+    }
+
+    /* Tabs */
+    button[data-baseweb="tab"] {
+        font-weight: 650;
+    }
+
+    /* Alerts */
+    [data-testid="stAlert"] {
+        border-radius: 12px;
+    }
+
+    /* Divider */
+    hr {
+        border-color: #e1e7f0;
+    }
+
+    /* Progress bars */
+    [data-testid="stProgressBar"] > div > div {
+        background: linear-gradient(
+            90deg,
+            #315efb,
+            #6846e8
+        );
+    }
+
+    /* Footer spacing */
+    [data-testid="stSidebar"] .stCaption {
+        color: #cbd5e1;
+    }
+
+    /* Mobile-friendly spacing */
+    @media (max-width: 768px) {
+        .block-container {
+            padding: 1rem 1rem 2rem 1rem;
+        }
+
+        [data-testid="stMetricValue"] {
+            font-size: 1.35rem !important;
+        }
     }
     </style>
     """,
