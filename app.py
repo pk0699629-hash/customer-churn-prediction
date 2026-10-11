@@ -730,21 +730,103 @@ if page == "Dashboard":
 
         st.divider()
 
-        st.subheader("Dataset Preview")
-        st.dataframe(
-            df.head(20),
-            use_container_width=True,
+        
+        # ==========================================
+        # CUSTOMER CHURN INSIGHTS
+        # ==========================================
+
+        st.divider()
+        st.subheader("💡 Customer Churn Insights")
+
+        insights_col1, insights_col2 = st.columns(2)
+
+        # Insight 1: Churn by contract
+        with insights_col1:
+            st.markdown("### 📄 Contract Insights")
+
+            if "Contract" in df.columns:
+                contract_insights = df.copy()
+
+                contract_insights["ChurnLabel"] = (
+                    get_churn_labels(contract_insights)
+                )
+
+                contract_table = pd.crosstab(
+                    contract_insights["Contract"],
+                    contract_insights["ChurnLabel"],
+                    normalize="index",
+                ) * 100
+
+                if "Yes" in contract_table.columns:
+                    contract_table = contract_table.sort_values(
+                        "Yes",
+                        ascending=False,
+                    )
+
+                    st.dataframe(
+                        contract_table.round(2),
+                        use_container_width=True,
+                    )
+
+                    highest_contract = contract_table.index[0]
+                    highest_rate = contract_table.iloc[0]["Yes"]
+
+                    st.warning(
+                        f"Highest churn contract group: "
+                        f"{highest_contract} "
+                        f"({highest_rate:.1f}% churn)"
+                    )
+                else:
+                    st.info("Contract churn information unavailable.")
+            else:
+                st.info("Contract column nahi mila.")
+
+        # Insight 2: Churn by tenure group
+        with insights_col2:
+            st.markdown("### ⏳ Tenure Insights")
+
+            if "tenure" in df.columns:
+                tenure_insights = df.copy()
+
+                tenure_insights["Tenure Group"] = pd.cut(
+                    tenure_insights["tenure"],
+                    bins=[-1, 12, 24, 48, 72],
+                    labels=[
+                        "0–12 months",
+                        "13–24 months",
+                        "25–48 months",
+                        "49–72 months",
+                    ],
+                )
+
+                tenure_table = pd.crosstab(
+                    tenure_insights["Tenure Group"],
+                    get_churn_labels(tenure_insights),
+                    normalize="index",
+                ) * 100
+
+                if "Yes" in tenure_table.columns:
+                    st.bar_chart(
+                        tenure_table[["Yes"]].rename(
+                            columns={"Yes": "Churn rate (%)"}
+                        )
+                    )
+                else:
+                    st.info("Tenure churn information unavailable.")
+            else:
+                st.info("Tenure column nahi mila.")
+
+        st.markdown("### 🎯 Suggested Business Actions")
+
+        st.markdown(
+            """
+            - **Contract review:** Monthly contract customers ke liye
+              suitable longer-term plans explore karein.
+            - **Early engagement:** Naye customers se regular feedback lein.
+            - **Customer support:** Support issues ko jaldi resolve karein.
+            - **Personalized offers:** Customer needs ke hisaab se offers dein.
+            """
         )
-
-        csv_data = df.to_csv(index=False).encode("utf-8")
-
-        st.download_button(
-            "⬇️ Download Dataset CSV",
-            data=csv_data,
-            file_name="customer_churn_data.csv",
-            mime="text/csv",
-        )
-
 
 # =========================================================
 # 11. PREDICT CHURN PAGE
